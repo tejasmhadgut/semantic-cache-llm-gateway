@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: semantic_cache
+    ports:
+      - "5432:5432"
+  
+  redis:
+    image: redis/redis-stack:latest
+    ports:
+    - "6379:6379"
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+    - "5672:5672"
+    - "15672:15672"
+    
