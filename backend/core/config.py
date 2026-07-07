@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int
     REDIS_URL: str
     RABBITMQ_URL: str
+    RATE_LIMIT_REQUESTS: int
+    RATE_LIMIT_WINDOW: int
     class Config:
         env_file = ".env"
 
