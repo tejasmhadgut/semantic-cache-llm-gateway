@@ -17,11 +17,14 @@ async def query(request: QueryRequest, current_user: str = Depends(get_current_u
     await check_rate_limit(current_user)
     prompt = normalize(request.prompt)
     embeddings = get_embedding(prompt)
-    results = await search_cache(embeddings)
+    system_prompt = request.system_prompt
+    model = request.model
+    temperature = request.temperature
+    results = await search_cache(prompt, embeddings, system_prompt, model, temperature)
     if results and float(results[0]["vector_distance"]) <(1 - SIMILARITY_THRESHOLD):
         return {"prompt":prompt,"response": results[0]["response"],"cache_hit":True}
     else:
-        response = await deduplicate(prompt, lambda: call_llm(prompt))
-        await publish_cache_write(prompt, response, embeddings)
+        response = await deduplicate(prompt, lambda: call_llm(prompt, system_prompt, model))
+        await publish_cache_write(prompt, response, embeddings, system_prompt, model, temperature)
         return {"prompt":prompt,"response":response,"cache_hit":False}
     

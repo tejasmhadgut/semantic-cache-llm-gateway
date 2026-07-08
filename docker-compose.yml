@@ -1,4 +1,28 @@
 services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8000:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - gateway
+  gateway:
+    build: ./backend
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://user:password@postgres:5432/semantic_cache
+      - REDIS_URL=redis://redis:6379
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+      - JWT_SECRET=28b0843a2e04908f498f1e820f453677cd8016a10f118ef4059514e1623469d0
+      - JWT_ALGORITHM=HS256
+      - JWT_EXPIRE_MINUTES=100
+      - RATE_LIMIT_REQUESTS=60
+      - RATE_LIMIT_WINDOW=60
+      - CACHE_TTL_SECONDS=3600
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
   postgres:
     image: postgres:15
     environment:
@@ -7,6 +31,17 @@ services:
       POSTGRES_DB: semantic_cache
     ports:
       - "5432:5432"
+  worker:
+    build: ./backend
+    command: python -m workers.cache_worker
+    working_dir: /app
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      - redis
+      - rabbitmq
+
   
   redis:
     image: redis/redis-stack:latest

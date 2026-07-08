@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     RABBITMQ_URL: str
     RATE_LIMIT_REQUESTS: int
     RATE_LIMIT_WINDOW: int
+    CACHE_TTL_SECONDS: int
     class Config:
         env_file = ".env"
 

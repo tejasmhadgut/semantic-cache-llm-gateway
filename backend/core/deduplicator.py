@@ -17,11 +17,12 @@ async def deduplicate(prompt: str, call_llm_fn):
         try:
             result = await call_llm_fn()
             future.set_result(result)
+            return result
         except Exception as e:
             future.set_exception(e)
+            raise
         finally:
             async with lock:
                 del inflight[prompt]
-        return result
     else:
         return await future

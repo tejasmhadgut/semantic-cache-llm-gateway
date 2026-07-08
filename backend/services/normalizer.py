@@ -1,6 +1,5 @@
 
 import re
-import string
 
 
 def normalize(text: str) -> str:
@@ -21,8 +20,7 @@ def normalize(text: str) -> str:
     ]
     for phrase in filler_phrases:
         text = re.sub(rf"\b{re.escape(phrase)}\b","",text)
-    
-    text = text.translate(str.maketrans("","", string.punctuation))
+    text = re.sub(r"[!?,\.;:\"\'()\[\]{}]", "", text)
     text = re.sub(r"\s+"," ",text);
     return text.strip()
     
