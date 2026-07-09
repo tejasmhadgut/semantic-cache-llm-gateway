@@ -8,23 +8,39 @@ from services.llm import call_llm
 from services.normalizer import normalize
 from core.rate_limiter import check_rate_limit
 from schemas.query import QueryRequest
+from core.metrics import cache_hits, cache_misses, llm_requests, active_requests, request_latency
+from core.tracing import get_tracer
 router = APIRouter(prefix="/query", tags=["query"])
 
 SIMILARITY_THRESHOLD = 0.85
 
 @router.post("/")
 async def query(request: QueryRequest, current_user: str = Depends(get_current_user)):
-    await check_rate_limit(current_user)
-    prompt = normalize(request.prompt)
-    embeddings = get_embedding(prompt)
-    system_prompt = request.system_prompt
-    model = request.model
-    temperature = request.temperature
-    results = await search_cache(prompt, embeddings, system_prompt, model, temperature)
-    if results and float(results[0]["vector_distance"]) <(1 - SIMILARITY_THRESHOLD):
-        return {"prompt":prompt,"response": results[0]["response"],"cache_hit":True}
-    else:
-        response = await deduplicate(prompt, lambda: call_llm(prompt, system_prompt, model))
-        await publish_cache_write(prompt, response, embeddings, system_prompt, model, temperature)
-        return {"prompt":prompt,"response":response,"cache_hit":False}
-    
+    tracer = get_tracer()
+    with tracer.start_as_current_span("rate_limiting"):
+        await check_rate_limit(current_user)
+    with request_latency.labels(method="POST", endpoint="/query/").time():
+        active_requests.inc()
+        try:
+            with tracer.start_as_current_span("normalizing"):
+                prompt = normalize(request.prompt)
+            with tracer.start_as_current_span("embedding"):
+                embeddings = get_embedding(prompt)
+            system_prompt = request.system_prompt
+            model = request.model
+            temperature = request.temperature
+            with tracer.start_as_current_span("Search Cache"):
+                results = await search_cache(prompt, embeddings, system_prompt, model, temperature)
+            if results and float(results[0]["vector_distance"]) <(1 - SIMILARITY_THRESHOLD):
+                cache_hits.labels(method="POST", endpoint="/query/").inc()
+                return {"prompt":prompt,"response": results[0]["response"],"cache_hit":True}
+            else:
+                with tracer.start_as_current_span("Call LLM"):
+                    response = await deduplicate(prompt, lambda: call_llm(prompt, system_prompt, model))
+                cache_misses.labels(method="POST", endpoint="/query/").inc()
+                llm_requests.labels(method="POST", endpoint="/query/").inc()
+                with tracer.start_as_current_span("publish to Cache"):
+                    await publish_cache_write(prompt, response, embeddings, system_prompt, model, temperature)
+                return {"prompt":prompt,"response":response,"cache_hit":False}
+        finally:
+            active_requests.dec()
