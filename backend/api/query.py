@@ -14,7 +14,7 @@ from core.rate_limiter import check_rate_limit
 from schemas.query import QueryRequest
 from core.tracing import get_tracer
 from core.metrics import cache_hits, cache_misses, llm_requests, active_requests, request_latency, similarity_scores
-
+import asyncio
 
 router = APIRouter(prefix="/query", tags=["query"])
 
@@ -32,7 +32,8 @@ async def query(request: QueryRequest, current_user: str = Depends(get_current_u
             with tracer.start_as_current_span("normalizing"):
                 prompt = normalize(request.prompt)
             with tracer.start_as_current_span("embedding"):
-                embeddings = get_embedding(prompt)
+                loop = asyncio.get_event_loop()
+                embeddings =  await loop.run_in_executor(None, get_embedding, prompt)
             system_prompt = request.system_prompt
             model = request.model
             temperature = request.temperature
