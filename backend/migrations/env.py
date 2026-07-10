@@ -1,6 +1,6 @@
 from logging.config import fileConfig
 from models.user import User
-
+from models.near_miss import NearMiss
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 import asyncio

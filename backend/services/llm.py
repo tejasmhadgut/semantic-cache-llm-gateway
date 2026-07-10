@@ -15,7 +15,7 @@ async def call_ollama(prompt: str, system_prompt: str = None, model: str = "llam
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.post(
             "http://host.docker.internal:11434/api/chat",
             json={"model": model, "messages": messages, "stream": False}

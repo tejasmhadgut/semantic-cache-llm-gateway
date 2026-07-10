@@ -1,0 +1,74 @@
+{
+  "title": "Semantic Cache Gateway",
+  "uid": "semantic-cache",
+  "schemaVersion": 38,
+  "refresh": "10s",
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Cache Hit Rate",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "unit": "percentunit"},
+      "targets": [{"expr": "rate(cache_hit_total[5m]) / (rate(cache_hit_total[5m]) + rate(cache_misses_total[5m]))", "legendFormat": "Hit Rate"}],
+      "datasource": "Prometheus"
+    },
+    {
+      "id": 2, "type": "stat", "title": "Active Requests",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "active_requests", "legendFormat": "Active"}],
+      "datasource": "Prometheus"
+    },
+    {
+      "id": 3, "type": "stat", "title": "Queue Depth",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "queue_depth", "legendFormat": "Depth"}],
+      "datasource": "Prometheus"
+    },
+    {
+      "id": 4, "type": "stat", "title": "Queue Consumers",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "queue_consumers", "legendFormat": "Consumers"}],
+      "datasource": "Prometheus"
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Cache Hits vs Misses",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "rate(cache_hit_total[1m])", "legendFormat": "Hits"},
+        {"expr": "rate(cache_misses_total[1m])", "legendFormat": "Misses"},
+        {"expr": "rate(llm_requests_total[1m])", "legendFormat": "LLM Calls"}
+      ],
+      "datasource": "Prometheus"
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Request Latency",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "fieldConfig": {"defaults": {"unit": "s"}},
+      "targets": [
+        {"expr": "histogram_quantile(0.5, rate(http_request_duration_seconds_bucket[5m]))", "legendFormat": "P50"},
+        {"expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))", "legendFormat": "P95"}
+      ],
+      "datasource": "Prometheus"
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "Similarity Score Distribution",
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "histogram_quantile(0.5, rate(similarity_score_bucket[5m]))", "legendFormat": "P50 Distance"},
+        {"expr": "histogram_quantile(0.95, rate(similarity_score_bucket[5m]))", "legendFormat": "P95 Distance"}
+      ],
+      "datasource": "Prometheus"
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "Queue Depth Over Time",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "queue_depth", "legendFormat": "Messages Ready"},
+        {"expr": "queue_consumers", "legendFormat": "Consumers"}
+      ],
+      "datasource": "Prometheus"
+    }
+  ]
+}

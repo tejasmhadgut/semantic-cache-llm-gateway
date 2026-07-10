@@ -29,3 +29,16 @@ request_latency = Histogram(
     ["method","endpoint"],
     buckets=[0.05,0.1,0.25,0.5,1.0,2.5,5.0,10.0,30.0]
 )
+similarity_scores = Histogram(
+    "similarity_score",
+    "Vector distance of top cache result per query",
+    buckets=[0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50, 0.75, 1.0]
+)
+
+queue_depth = Gauge("queue_depth",
+                     "Number of messages ready in cache_queue"
+)
+
+queue_consumers = Gauge("queue_consumers",
+                         "Number of active consumers on cache_queue"
+)
