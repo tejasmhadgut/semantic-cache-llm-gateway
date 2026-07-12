@@ -13,6 +13,7 @@ from core.tracing_middleware import TracingMiddleware
 import asyncio
 import httpx
 from core.metrics import queue_depth, queue_consumers
+from api.openai_compat import router as openai_router
 
 async def poll_queue_metrics():
     while True:
@@ -45,6 +46,8 @@ app.add_middleware(TracingMiddleware)
 app.include_router(auth_router)
 app.include_router(query_router)
 app.include_router(cache_router)
+app.include_router(openai_router)
+
 @app.get("/health")
 async def health():
     return {"status":"ok"}
@@ -55,6 +58,7 @@ async def metrics():
         prometheus_client.generate_latest(),
         media_type=prometheus_client.CONTENT_TYPE_LATEST
     )
+
 @app.get("/protected")
 async def protected(current_user: str = Depends(get_current_user)):
     return {"message":f"Hello {current_user}"}
