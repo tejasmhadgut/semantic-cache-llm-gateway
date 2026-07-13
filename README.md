@@ -25,24 +25,25 @@ Cache writes are decoupled from the request path. After an LLM response, the gat
 ![Architecture Diagram](Architecture_Diagram.png)
 
 ```
-                          ┌─────────────────────────────────────────────┐
-                          │              Docker Network                  │
-                          │                                              │
-Client ──► nginx:8000 ──► │ gateway (FastAPI)                           │
-                          │   │                                          │
-                          │   ├──► postgres:5432  (users, near-misses)  │
-                          │   ├──► redis:6379     (vector cache, rate   │
-                          │   │                    limiting)            │
-                          │   ├──► rabbitmq:5672  (async cache writes)  │
-                          │   ├──► ollama (host)  (LLM inference)       │
-                          │   └──► otel-collector (traces)              │
-                          │                                              │
-                          │ worker                                       │
-                          │   └──► rabbitmq → redis (cache writes)      │
-                          │                                              │
-                          │ prometheus ──► grafana:3000                  │
-                          │ otel-collector ──► jaeger:16686              │
-                          └─────────────────────────────────────────────┘
+                          ┌──────────────────────────────────────────────────────┐
+                          │                   Docker Network                      │
+                          │                                                        │
+Client ──► nginx:8000 ──► │ gateway (FastAPI)                                     │
+                          │   │                                                    │
+                          │   ├──► postgres:5432      (users, near-misses)        │
+                          │   ├──► redis-primary       (vector cache, rate limit) │
+                          │   │     └── redis-replica-1, redis-replica-2          │
+                          │   │           monitored by sentinel-1/2/3             │
+                          │   ├──► rabbitmq:5672       (async cache writes)       │
+                          │   ├──► ollama (host)        (LLM inference)           │
+                          │   └──► otel-collector       (traces)                  │
+                          │                                                        │
+                          │ worker                                                 │
+                          │   └──► rabbitmq → redis-primary (cache writes)        │
+                          │                                                        │
+                          │ prometheus ──► grafana:3000                            │
+                          │ otel-collector ──► jaeger:16686                        │
+                          └──────────────────────────────────────────────────────┘
 ```
 
 **Components:**
@@ -51,7 +52,9 @@ Client ──► nginx:8000 ──► │ gateway (FastAPI)                     
 |---|---|
 | nginx | Load balancer, single entry point |
 | FastAPI gateway | Auth, rate limiting, embedding, cache lookup, LLM routing |
-| Redis (redis-stack) | Vector similarity search, rate limit state |
+| redis-primary | Vector similarity search, rate limit state (writes) |
+| redis-replica-1/2 | Read replicas — serve cache lookups during primary failover |
+| sentinel-1/2/3 | Monitor primary, vote on failures, execute automatic promotion |
 | RabbitMQ | Async queue between gateway and cache worker |
 | Cache worker | Consumes queue, writes embeddings to Redis |
 | Postgres | User accounts, near-miss analytics |
@@ -79,7 +82,8 @@ Benchmarks from Phase 5 load testing (20 concurrent users, MacBook Air, local Ol
 |---|---|
 | Cache worker | Zero — write path is decoupled, reads unaffected |
 | RabbitMQ | Zero on reads — only new cache writes fail |
-| Redis | Full outage — rate limiter is first Redis call, everything hangs |
+| Redis (no HA) | Full outage — 0 RPS, 39s hangs, no recovery until restart |
+| Redis primary (with Sentinel + circuit breaker) | **1.18% failure rate** — 20/1696 requests, P50 stays at 38ms, automatic recovery |
 
 ---
 
