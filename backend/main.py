@@ -14,6 +14,7 @@ import asyncio
 import httpx
 from core.metrics import queue_depth, queue_consumers
 from api.openai_compat import router as openai_router
+from services.redis_client import init_redis
 
 async def poll_queue_metrics():
     while True:
@@ -34,6 +35,7 @@ async def poll_queue_metrics():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    init_redis()
     load_model()
     await init_cache()
     await connect_queue()

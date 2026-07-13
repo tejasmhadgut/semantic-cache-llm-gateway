@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     RATE_LIMIT_REQUESTS: int
     RATE_LIMIT_WINDOW: int
     CACHE_TTL_SECONDS: int
+    SENTINEL_HOSTS: str = "sentinel-1:26379,sentinel-2:26379,sentinel-3:26379"
+    REDIS_MASTER_NAME: str = "mymaster"
+
     class Config:
         env_file = ".env"
 

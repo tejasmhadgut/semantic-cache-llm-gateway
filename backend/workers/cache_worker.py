@@ -4,8 +4,10 @@ import aio_pika
 from services.cache import invalidate_cache, store_in_cache, init_cache
 from services.embedding import load_model
 from core.config import settings
+from services.redis_client import init_redis
 
 async def main():
+    init_redis()
     load_model()
     await init_cache()
 

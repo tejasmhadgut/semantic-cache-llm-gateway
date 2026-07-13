@@ -16,12 +16,17 @@ services:
       - JWT_SECRET=28b0843a2e04908f498f1e820f453677cd8016a10f118ef4059514e1623469d0
       - JWT_ALGORITHM=HS256
       - JWT_EXPIRE_MINUTES=100
-      - RATE_LIMIT_REQUESTS=1000
+      - RATE_LIMIT_REQUESTS=10000
       - RATE_LIMIT_WINDOW=60
       - CACHE_TTL_SECONDS=3600
+      - SENTINEL_HOSTS=sentinel-1:26379,sentinel-2:26379,sentinel-3:26379
+      - REDIS_MASTER_NAME=mymaster
     depends_on:
       - postgres
-      - redis
+      - redis-primary
+      - sentinel-1
+      - sentinel-2
+      - sentinel-3
       - rabbitmq
   postgres:
     image: postgres:15
@@ -39,14 +44,92 @@ services:
       - REDIS_URL=redis://redis:6379
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
     depends_on:
-      - redis
+      - redis-primary
       - rabbitmq
 
   
-  redis:
+  redis-primary:
     image: redis/redis-stack:latest
     ports:
-    - "6379:6379"
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+
+  redis-replica-1:
+    image: redis/redis-stack:latest
+    environment:
+      - REDIS_ARGS=--replicaof redis-primary 6379
+    depends_on:
+      - redis-primary
+
+  redis-replica-2:
+    image: redis/redis-stack:latest
+    environment:
+      - REDIS_ARGS=--replicaof redis-primary 6379
+    depends_on:
+      - redis-primary
+
+  sentinel-1:
+    image: redis:7-alpine
+    command: >
+      sh -c "
+        until getent hosts redis-primary > /dev/null 2>&1; do sleep 1; done &&
+        REDIS_IP=$$(getent hosts redis-primary | awk '{ print $$1 }') &&
+        echo 'port 26379' > /etc/sentinel.conf &&
+        echo 'sentinel monitor mymaster '$$REDIS_IP' 6379 2' >> /etc/sentinel.conf &&
+        echo 'sentinel down-after-milliseconds mymaster 2000' >> /etc/sentinel.conf &&
+        echo 'sentinel failover-timeout mymaster 5000' >> /etc/sentinel.conf &&
+        echo 'sentinel parallel-syncs mymaster 1' >> /etc/sentinel.conf &&
+        redis-sentinel /etc/sentinel.conf
+      "
+    volumes:
+      - ./sentinel.conf:/tmp/sentinel.conf:ro
+    depends_on:
+      redis-primary:
+        condition: service_healthy
+
+  sentinel-2:
+    image: redis:7-alpine
+    command: >
+      sh -c "
+        until getent hosts redis-primary > /dev/null 2>&1; do sleep 1; done &&
+        REDIS_IP=$$(getent hosts redis-primary | awk '{ print $$1 }') &&
+        echo 'port 26379' > /etc/sentinel.conf &&
+        echo 'sentinel monitor mymaster '$$REDIS_IP' 6379 2' >> /etc/sentinel.conf &&
+        echo 'sentinel down-after-milliseconds mymaster 2000' >> /etc/sentinel.conf &&
+        echo 'sentinel failover-timeout mymaster 5000' >> /etc/sentinel.conf &&
+        echo 'sentinel parallel-syncs mymaster 1' >> /etc/sentinel.conf &&
+        redis-sentinel /etc/sentinel.conf
+      "
+    volumes:
+      - ./sentinel.conf:/tmp/sentinel.conf:ro
+    depends_on:
+      redis-primary:
+        condition: service_healthy
+
+  sentinel-3:
+    image: redis:7-alpine
+    command: >
+      sh -c "
+        until getent hosts redis-primary > /dev/null 2>&1; do sleep 1; done &&
+        REDIS_IP=$$(getent hosts redis-primary | awk '{ print $$1 }') &&
+        echo 'port 26379' > /etc/sentinel.conf &&
+        echo 'sentinel monitor mymaster '$$REDIS_IP' 6379 2' >> /etc/sentinel.conf &&
+        echo 'sentinel down-after-milliseconds mymaster 2000' >> /etc/sentinel.conf &&
+        echo 'sentinel failover-timeout mymaster 5000' >> /etc/sentinel.conf &&
+        echo 'sentinel parallel-syncs mymaster 1' >> /etc/sentinel.conf &&
+        redis-sentinel /etc/sentinel.conf
+      "
+    volumes:
+      - ./sentinel.conf:/tmp/sentinel.conf:ro
+    depends_on:
+      redis-primary:
+        condition: service_healthy
+
 
   rabbitmq:
     image: rabbitmq:3-management
