@@ -22,29 +22,7 @@ Cache writes are decoupled from the request path. After an LLM response, the gat
 
 ## Architecture
 
-![Architecture Diagram](Architecture_Diagram.png)
-
-```
-                          ┌──────────────────────────────────────────────────────┐
-                          │                   Docker Network                      │
-                          │                                                        │
-Client ──► nginx:8000 ──► │ gateway (FastAPI)                                     │
-                          │   │                                                    │
-                          │   ├──► postgres:5432      (users, near-misses)        │
-                          │   ├──► redis-primary       (vector cache, rate limit) │
-                          │   │     └── redis-replica-1, redis-replica-2          │
-                          │   │           monitored by sentinel-1/2/3             │
-                          │   ├──► rabbitmq:5672       (async cache writes)       │
-                          │   ├──► ollama (host)        (LLM inference)           │
-                          │   └──► otel-collector       (traces)                  │
-                          │                                                        │
-                          │ worker                                                 │
-                          │   └──► rabbitmq → redis-primary (cache writes)        │
-                          │                                                        │
-                          │ prometheus ──► grafana:3000                            │
-                          │ otel-collector ──► jaeger:16686                        │
-                          └──────────────────────────────────────────────────────┘
-```
+![Architecture Diagram](Architectural_diagram.png)
 
 **Components:**
 
