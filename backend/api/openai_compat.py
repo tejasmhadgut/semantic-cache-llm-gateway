@@ -1,51 +1,55 @@
+import json
+import asyncio
+import time
+import uuid
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from schemas.openai import ChatCompletionRequest, ChatCompletionResponse, ChatCompletionChoice, Message
 from core.auth import get_current_user
 from core.rate_limiter import check_rate_limit
 from services.embedding import get_embedding
 from services.cache import search_cache
-from services.llm import call_llm
+from services.llm import call_llm, stream_llm
 from services.queue import publish_cache_write
 from core.deduplicator import deduplicate
 from services.normalizer import normalize
 from core.tracing import get_tracer
 from core.metrics import cache_hits, cache_misses, llm_requests, active_requests, request_latency
-import asyncio
-import time
-import uuid
-
 
 router = APIRouter(prefix="/v1", tags=["openai-compat"])
 
 SIMILARITY_THRESHOLD = 0.85
 
-@router.post("/chat/completions", response_model=ChatCompletionResponse)
+@router.post("/chat/completions")
 async def chat_completions(request: ChatCompletionRequest, current_user: str = Depends(get_current_user)):
     tracer = get_tracer()
     await check_rate_limit(current_user)
 
-    # extract system and user prompt from messages
     system_prompt = next((m.content for m in request.messages if m.role == "system"), None)
     user_message = next((m.content for m in reversed(request.messages) if m.role == "user"), None)
+
+    with tracer.start_as_current_span("normalizing"):
+        prompt = normalize(user_message)
+    with tracer.start_as_current_span("embedding"):
+        loop = asyncio.get_event_loop()
+        embeddings = await loop.run_in_executor(None, get_embedding, prompt)
+    with tracer.start_as_current_span("Search Cache"):
+        results = await search_cache(prompt, embeddings, system_prompt, request.model, request.temperature)
+
+    is_hit = results and float(results[0]["vector_distance"]) < (1 - SIMILARITY_THRESHOLD)
+
+    if request.stream:
+        return _stream_openai(prompt, embeddings, results, is_hit, system_prompt, request.model, request.temperature)
 
     with request_latency.labels(method="POST", endpoint="/v1/chat/completions").time():
         active_requests.inc()
         try:
-            with tracer.start_as_current_span("normalizing"):
-                prompt = normalize(user_message)
-            with tracer.start_as_current_span("embedding"):
-                loop = asyncio.get_event_loop()
-                embeddings = await loop.run_in_executor(None, get_embedding, prompt)
-            with tracer.start_as_current_span("Search Cache"):
-                results = await search_cache(prompt, embeddings, system_prompt, request.model, request.temperature)
-
-            if results and float(results[0]["vector_distance"]) < (1 - SIMILARITY_THRESHOLD):
+            if is_hit:
                 cache_hits.labels(method="POST", endpoint="/v1/chat/completions").inc()
                 response_text = results[0]["response"]
                 cache_hit = True
             else:
-                with tracer.start_as_current_span("Call LLM"):
-                    response_text = await deduplicate(prompt, lambda: call_llm(prompt, system_prompt, request.model))
+                response_text = await deduplicate(prompt, lambda: call_llm(prompt, system_prompt, request.model))
                 cache_misses.labels(method="POST", endpoint="/v1/chat/completions").inc()
                 llm_requests.labels(method="POST", endpoint="/v1/chat/completions").inc()
                 await publish_cache_write(prompt, response_text, embeddings, system_prompt, request.model, request.temperature)
@@ -65,4 +69,43 @@ async def chat_completions(request: ChatCompletionRequest, current_user: str = D
         )],
         cache_hit=cache_hit
     )
-    
+
+def _stream_openai(prompt, embeddings, results, is_hit, system_prompt, model, temperature):
+    completion_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
+    created = int(time.time())
+
+    def make_chunk(content=None, role=None, finish_reason=None):
+        delta = {}
+        if role:
+            delta["role"] = role
+        if content is not None:
+            delta["content"] = content
+        return json.dumps({
+            "id": completion_id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": model,
+            "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}]
+        })
+
+    async def generator():
+        active_requests.inc()
+        try:
+            yield f"data: {make_chunk(role='assistant', content='')}\n\n"
+            if is_hit:
+                cache_hits.labels(method="POST", endpoint="/v1/chat/completions").inc()
+                yield f"data: {make_chunk(content=results[0]['response'])}\n\n"
+            else:
+                cache_misses.labels(method="POST", endpoint="/v1/chat/completions").inc()
+                llm_requests.labels(method="POST", endpoint="/v1/chat/completions").inc()
+                buffer = []
+                async for token in stream_llm(prompt, system_prompt, model):
+                    buffer.append(token)
+                    yield f"data: {make_chunk(content=token)}\n\n"
+                await publish_cache_write(prompt, "".join(buffer), embeddings, system_prompt, model, temperature)
+            yield f"data: {make_chunk(finish_reason='stop')}\n\n"
+            yield "data: [DONE]\n\n"
+        finally:
+            active_requests.dec()
+
+    return StreamingResponse(generator(), media_type="text/event-stream")
